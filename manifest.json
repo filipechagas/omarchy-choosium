@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.filipechagas.choosium",
+  "name": "Choosium",
+  "version": "0.1.0",
+  "author": "Filipe Chagas",
+  "license": "MIT",
+  "description": "Route links to different browsers by source app or website.",
+  "homepage": "https://github.com/filipechagas/omarchy-choosium",
+  "repository": "https://github.com/filipechagas/omarchy-choosium",
+  "keywords": [
+    "browser",
+    "routing",
+    "hyprland"
+  ],
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Choosium",
+    "description": "Configure browser routing rules",
+    "category": "Productivity",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
