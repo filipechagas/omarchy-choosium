@@ -2,13 +2,23 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value === undefined ? null : value))
 }
 
+function asArray(values) {
+  if (Array.isArray(values)) return values
+  if (!values || typeof values === "string" || typeof values.length !== "number") return []
+  var length = Math.floor(values.length)
+  if (!isFinite(length) || length < 0) return []
+  var result = []
+  for (var i = 0; i < length; i++) result.push(values[i])
+  return result
+}
+
 function cloneRules(rules) {
-  return clone(Array.isArray(rules) ? rules : [])
+  return clone(asArray(rules))
 }
 
 function browserLabel(identifier, browsers) {
   var value = String(identifier || "")
-  var options = Array.isArray(browsers) ? browsers : []
+  var options = asArray(browsers)
   for (var i = 0; i < options.length; i++) {
     if (String(options[i].value || options[i].desktopId || "") === value)
       return plainText(options[i].label || value)
@@ -21,7 +31,7 @@ function plainText(value) {
 }
 
 function uniqueStrings(values) {
-  var source = Array.isArray(values) ? values : []
+  var source = asArray(values)
   var result = []
   var seen = {}
   for (var i = 0; i < source.length; i++) {
@@ -35,11 +45,11 @@ function uniqueStrings(values) {
 }
 
 function addUnique(values, value) {
-  return uniqueStrings((Array.isArray(values) ? values : []).concat([value]))
+  return uniqueStrings(asArray(values).concat([value]))
 }
 
 function removeValue(values, value) {
-  var source = Array.isArray(values) ? values : []
+  var source = asArray(values)
   var key = String(value || "").toLowerCase()
   var result = []
   for (var i = 0; i < source.length; i++) {
@@ -114,7 +124,7 @@ function ruleError(rule, rules, editingIndex) {
     if (!cleanDomain(domains[d])) return "Enter valid HTTP or HTTPS website domains."
   }
 
-  var source = Array.isArray(rules) ? rules : []
+  var source = asArray(rules)
   for (var i = 0; i < source.length; i++) {
     if (i !== editingIndex && String(source[i].name || "").toLowerCase() === name.toLowerCase())
       return "Another route already uses that name."

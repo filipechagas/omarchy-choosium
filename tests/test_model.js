@@ -44,6 +44,16 @@ test("browser labels and trigger summaries are human readable", () => {
   )
 })
 
+test("trigger summaries accept QML array-like rule values", () => {
+  const clients = { 0: "thunderbird", length: 1 }
+  const sites = { 0: "github.com", 1: "figma.com", length: 2 }
+
+  assert.equal(
+    Model.triggerSummary({ clients, url: sites }),
+    "Apps: thunderbird  ·  Sites: github.com, figma.com"
+  )
+})
+
 test("domain cleanup accepts web URLs and rejects malformed or non-web input", () => {
   assert.equal(Model.cleanDomain("https://User@Docs.Example.com:443/path"), "docs.example.com")
   assert.equal(Model.cleanDomain("ftp://example.com/file"), "")

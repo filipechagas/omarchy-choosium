@@ -433,6 +433,14 @@ class QmlContractTests(unittest.TestCase):
         self.assertIn("component BrowserChoices", panel)
         self.assertNotIn("Ui.SearchableDropdown", panel)
 
+    def test_panel_only_offers_setting_choosium_as_the_default(self):
+        panel = (SCRIPT.parents[1] / "Panel.qml").read_text(encoding="utf-8")
+
+        self.assertIn("Set Choosium as your Default browser", panel)
+        self.assertIn("visible: root.serviceReady && !root.routingHealthy", panel)
+        self.assertNotIn("useFallbackDirectly", panel)
+        self.assertNotIn('requestOperation("set-direct-default"', panel)
+
 
 if __name__ == "__main__":
     unittest.main()

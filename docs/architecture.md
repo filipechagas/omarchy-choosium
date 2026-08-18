@@ -72,5 +72,5 @@ Choosium writes only a user desktop entry under `XDG_DATA_HOME`. It sets the
 HTTP, HTTPS, and HTML defaults with `xdg-settings` and `xdg-mime`, then checks
 the browser setting and queries all three handlers independently. The panel
 offers repair instead of claiming success if any handler differs or the
-generated desktop entry is stale. The UI can replace Choosium with its
-configured desktop fallback at any time.
+generated desktop entry is stale. The panel presents the same default-browser
+action for initial setup and repair, and hides it while Choosium is active.

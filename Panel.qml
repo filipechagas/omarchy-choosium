@@ -48,7 +48,6 @@ Ui.Panel {
     && service && service.isDefault && service.desktopInstalled
   readonly property bool handlerNeedsRepair: serviceReady
     && service && (service.handlerNeedsRepair || (service.isDefault && !service.desktopInstalled))
-  readonly property string fallbackLabel: Model.browserLabel(fallbackBrowser, browsers)
 
   function nextRequestId(kind) {
     requestSerial++
@@ -216,10 +215,6 @@ Ui.Panel {
 
   function makeDefault() {
     requestOperation("set-default", {}, "set-default")
-  }
-
-  function useFallbackDirectly() {
-    requestOperation("set-direct-default", { browser: fallbackBrowser }, "set-direct")
   }
 
   function open() {
@@ -503,7 +498,7 @@ Ui.Panel {
                     width: systemHeading.columns === 2
                       ? systemHeading.width * 0.55 - systemHeading.columnSpacing
                       : systemHeading.width
-                    text: "SYSTEM HANDLER"
+                    text: "DEFAULT BROWSER"
                     color: root.foreground
                     font.family: root.fontFamily
                     font.pixelSize: C.Style.font.subtitle
@@ -535,10 +530,10 @@ Ui.Panel {
                 Text {
                   width: parent.width
                   text: root.routingHealthy
-                    ? "Choosium receives web links first, checks the routes below, then uses your default destination."
+                    ? "Choosium is your default browser. It checks the routes below, then sends unmatched links to your default destination."
                     : (root.handlerNeedsRepair
-                      ? "Your desktop points only partly to Choosium, or its launcher is missing or stale. Repair it before opening links."
-                      : "Choosium is configured but links still go straight to " + String(root.service && root.service.currentDefaultName || "the current browser") + ".")
+                      ? "Choosium needs to be set as your default browser again."
+                      : String(root.service && root.service.currentDefaultName || "Another browser") + " is currently your default browser.")
                   color: root.muted
                   font.family: root.fontFamily
                   font.pixelSize: C.Style.font.bodySmall
@@ -560,26 +555,19 @@ Ui.Panel {
                   spacing: C.Style.spacing.rowGap
 
                   Ui.Button {
+                    visible: root.serviceReady && !root.routingHealthy
                     text: root.busy ? "Working..."
-                      : (root.routingHealthy
-                        ? (root.service && root.service.canSetDirect
-                          ? "Use " + root.fallbackLabel + " directly"
-                          : "Choose a desktop browser to bypass Choosium")
-                        : (root.handlerNeedsRepair ? "Repair Choosium handler" : "Use Choosium for links"))
-                    iconText: root.busy ? "\uf110" : (root.routingHealthy ? "\uf35d" : "\uf0c1")
+                      : "Set Choosium as your Default browser"
+                    iconText: root.busy ? "\uf110" : "\uf0c1"
                     iconSpinning: root.busy
                     bordered: true
-                    selected: !root.routingHealthy
+                    selected: true
                     focusable: true
-                    enabled: root.serviceReady && !root.busy && root.fallbackBrowser !== ""
-                      && (!root.routingHealthy || (root.service && root.service.canSetDirect))
+                    enabled: !root.busy && root.fallbackBrowser !== ""
                     opacity: enabled ? 1 : 0.45
                     foreground: root.foreground
                     fontFamily: root.fontFamily
-                    onClicked: {
-                      if (root.routingHealthy) root.useFallbackDirectly()
-                      else root.makeDefault()
-                    }
+                    onClicked: root.makeDefault()
                   }
 
                   Ui.Button {

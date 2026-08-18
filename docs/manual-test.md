@@ -20,11 +20,11 @@ export CHOOSIUM_CONFIG="$(mktemp -d)/config.toml"
 
 - [ ] Every installed visible browser appears once with its executable name.
 - [ ] Changing the unmatched-link destination persists after reopening.
-- [ ] **Use Choosium for links** changes HTTP, HTTPS, and HTML defaults.
-- [ ] Changing only one XDG web handler makes the panel offer **Repair**.
-- [ ] Removing or changing the generated desktop entry makes the panel offer **Repair**.
+- [ ] **Set Choosium as your Default browser** makes Choosium the default.
+- [ ] The default-browser action is hidden while Choosium is active.
+- [ ] Changing only one web default makes the default-browser action reappear.
+- [ ] Removing or changing the generated desktop entry makes the default-browser action reappear.
 - [ ] The bar status changes from standby to routing.
-- [ ] **Use _Browser_ directly** restores direct browser handling.
 - [ ] A missing or invalid custom browser command produces an actionable error.
 
 ## Add Workflow
@@ -62,6 +62,6 @@ export CHOOSIUM_CONFIG="$(mktemp -d)/config.toml"
 
 ## Removal
 
-- [ ] Set the fallback browser directly before removal.
+- [ ] Set another browser as the default before removal.
 - [ ] Removing the plugin unloads its bar widget and service.
 - [ ] The optional config and desktop-entry cleanup commands remove all Choosium-owned files.

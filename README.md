@@ -8,11 +8,13 @@ It is the Omarchy successor to
 [Hyprchoosy](https://github.com/filipechagas/hyprchoosy). Existing Hyprchoosy
 rules are loaded automatically and can be migrated without re-entering them.
 
+![Choosium browser routing panel](preview.png)
+
 ## Features
 
 - Native, theme-aware Omarchy configuration panel.
 - Installed-browser discovery from XDG desktop entries.
-- One-click setup as the system browser handler.
+- One-click setup as your default browser.
 - A separate default destination for links that match no route.
 - Ordered app and website routes, with app matches taking priority.
 - An add workflow that lists current windows from `hyprctl -j clients`.
@@ -45,15 +47,11 @@ Choosium appears in the right side of the bar. Its plugin ID is
 
 1. Open Choosium from the bar.
 2. Choose the browser that should receive links when no route matches.
-3. Select **Use Choosium for links**.
+3. Select **Set Choosium as your Default browser**.
 4. Select **Add route** to configure app or website routing.
 
-Setting Choosium as the handler creates
-`~/.local/share/applications/io.github.filipechagas.choosium.desktop` and updates
-the XDG handlers for HTTP, HTTPS, and HTML. No system file is modified.
-
-To stop routing, open the panel and select **Use _Browser_ directly**. This sets
-the chosen fallback browser as the XDG default without deleting any routes.
+Choosium now appears as your default browser. Links that do not match a route
+open in the browser selected under **No matches go to**.
 
 ## Add Routes
 
@@ -102,9 +100,7 @@ url = ["github.com", "localhost"]
 Browser values written by the UI are XDG desktop IDs. A hand-edited config may
 also use an executable command, including command-line arguments. Choosium
 launches argument arrays directly and never evaluates them through a shell.
-Command arguments are preserved exactly. The **Use _Browser_ directly** action
-requires a desktop ID because XDG defaults cannot point to a bare command; pick
-one of the installed-browser choices before bypassing Choosium.
+Command arguments are preserved exactly.
 
 Use `CHOOSIUM_CONFIG=/path/to/config.toml` to override the config path for a
 specific invocation.
@@ -113,11 +109,11 @@ specific invocation.
 
 If the Choosium config does not exist, the plugin reads
 `${XDG_CONFIG_HOME:-$HOME/.config}/hyprchoosy/config.toml`. The panel marks this
-as an imported config. The first save, or selecting **Use Choosium for links**,
-writes the equivalent ordered configuration to Choosium's own path. The old
-file is left untouched. Inert triggerless rules and duplicate triggers are
-retained for compatibility; routing remains deterministic because earlier
-matches win.
+as an imported config. The first save, or selecting **Set Choosium as your
+Default browser**, writes the equivalent ordered configuration to Choosium's
+own path. The old file is left untouched. Inert triggerless rules and duplicate
+triggers are retained for compatibility; routing remains deterministic because
+earlier matches win.
 
 The old `HYPRCHOOSY_CONFIG` environment override is also honored as a migration
 source.
@@ -136,9 +132,8 @@ Hyprland state through `hyprctl`. See
 
 ## Disable And Remove
 
-Before removing Choosium while it is the system handler, use the panel's
-**Use _Browser_ directly** action. Otherwise the desktop can retain a handler
-whose plugin checkout no longer exists.
+Before removing Choosium while it is your default browser, set another browser
+as the default from that browser or your desktop settings.
 
 ```bash
 omarchy plugin remove io.github.filipechagas.choosium
