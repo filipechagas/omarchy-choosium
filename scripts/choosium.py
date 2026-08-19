@@ -583,11 +583,6 @@ def desktop_is_default(desktop_id: str, handlers: dict[str, str] | None = None) 
     return setting_matches and all(values.get(mime_type) == desktop_id for mime_type in WEB_MIME_TYPES)
 
 
-def _desktop_exec_quote(value: str) -> str:
-    escaped = value.replace("\\", "\\\\").replace('"', '\\"').replace("`", "\\`").replace("$", "\\$")
-    return f'"{escaped}"'
-
-
 def desktop_entry_content(helper_path: Path) -> str:
     return "\n".join(
         [
@@ -597,7 +592,7 @@ def desktop_entry_content(helper_path: Path) -> str:
             "Name=Choosium",
             "GenericName=Browser Router",
             "Comment=Route links by source app or website",
-            f"Exec=/usr/bin/env python3 {_desktop_exec_quote(str(helper_path))} open %u",
+            f"Exec=/usr/bin/env python3 {helper_path} open %u",
             "TryExec=python3",
             "Icon=web-browser",
             "Terminal=false",

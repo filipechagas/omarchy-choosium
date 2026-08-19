@@ -4,6 +4,8 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 from unittest import mock
@@ -384,9 +386,58 @@ class DesktopIntegrationTests(unittest.TestCase):
     def test_generated_desktop_entry_routes_uris_through_the_helper(self):
         content = choosium.desktop_entry_content(Path("/tmp/plugin/scripts/choosium.py"))
 
-        self.assertIn('Exec=/usr/bin/env python3 "/tmp/plugin/scripts/choosium.py" open %u', content)
+        self.assertIn("Exec=/usr/bin/env python3 /tmp/plugin/scripts/choosium.py open %u", content)
         self.assertIn("x-scheme-handler/http", content)
         self.assertIn("NoDisplay=true", content)
+
+    @unittest.skipUnless(shutil.which("xdg-open"), "xdg-open is required")
+    def test_generated_desktop_entry_works_with_generic_xdg_open(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            data_home = root / "data"
+            applications = data_home / "applications"
+            config_home = root / "config"
+            applications.mkdir(parents=True)
+            config_home.mkdir()
+
+            helper = root / "probe.py"
+            helper.write_text(
+                "import json\nimport sys\nprint(json.dumps(sys.argv[1:]))\n",
+                encoding="utf-8",
+            )
+            (applications / choosium.DESKTOP_ID).write_text(
+                choosium.desktop_entry_content(helper),
+                encoding="utf-8",
+            )
+            (config_home / "mimeapps.list").write_text(
+                "[Default Applications]\n"
+                f"x-scheme-handler/https={choosium.DESKTOP_ID}\n",
+                encoding="utf-8",
+            )
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "BROWSER": "",
+                    "DISPLAY": ":0",
+                    "XDG_CONFIG_HOME": str(config_home),
+                    "XDG_CURRENT_DESKTOP": "X-Generic",
+                    "XDG_DATA_DIRS": str(root / "empty"),
+                    "XDG_DATA_HOME": str(data_home),
+                }
+            )
+
+            result = subprocess.run(
+                ["xdg-open", "https://www.google.com"],
+                check=False,
+                capture_output=True,
+                cwd=root,
+                env=environment,
+                text=True,
+                timeout=5,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout), ["open", "https://www.google.com"])
 
     def test_set_default_updates_all_web_handlers_and_verifies(self):
         def run_result(command, **_kwargs):
