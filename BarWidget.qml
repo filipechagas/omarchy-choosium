@@ -1,5 +1,4 @@
 import QtQuick
-import qs.Commons as C
 import qs.Ui as Ui
 
 Ui.BarWidget {
@@ -82,15 +81,4 @@ Ui.BarWidget {
     onPressed: root.toggle()
   }
 
-  Rectangle {
-    visible: root.showIcon && root.routingHealthy
-    width: C.Style.space(5)
-    height: width
-    radius: width / 2
-    color: C.Color.accent
-    anchors.right: button.right
-    anchors.top: button.top
-    anchors.rightMargin: C.Style.space(2)
-    anchors.topMargin: C.Style.space(2)
-  }
 }
