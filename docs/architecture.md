@@ -57,9 +57,11 @@ directory and leaves the source file unchanged.
 ## Routing
 
 The URL handler loads config for every invocation, so direct edits apply to the
-next link without a daemon or reload signal. It detects the source app from the
-active Hyprland window, then falls back to GIO launch metadata and the process
-tree.
+next link without a daemon or reload signal. It combines GIO launch metadata
+with meaningful process ancestors, preserving both an initiating agent and its
+containing terminal applications. The active Hyprland window is used only when
+that launch provenance is unavailable, because focus may change before a
+background process opens its link.
 
 Routing performs two ordered passes: all app patterns first, then all website
 patterns. The default destination is used after both passes. Installed desktop

@@ -382,6 +382,73 @@ class HyprlandTests(unittest.TestCase):
             self.assertEqual(choosium.active_hypr_class(), "")
 
 
+class ClientDetectionTests(unittest.TestCase):
+    def test_process_ancestry_beats_an_unrelated_focused_window(self):
+        ancestry = iter(
+            [
+                (90, "python3"),
+                (80, "gio-launch-desktop"),
+                (70, "claude"),
+                (60, "zsh"),
+                (50, "herdr"),
+                (40, "foot"),
+                (1, "systemd"),
+                None,
+            ]
+        )
+        with (
+            mock.patch.object(choosium.os, "getpid", return_value=100),
+            mock.patch.object(choosium, "_parent_process", side_effect=lambda _pid: next(ancestry)),
+            mock.patch.object(choosium, "active_hypr_class", return_value="Chromium"),
+            mock.patch.dict(os.environ, {"GIO_LAUNCHED_DESKTOP_FILE": ""}, clear=False),
+        ):
+            client = choosium.detect_client()
+
+        self.assertEqual(client, "claude herdr foot")
+        config = {
+            "default": {"browser": "chromium.desktop"},
+            "rules": [
+                {
+                    "name": "Agent terminal",
+                    "browser": "google-chrome.desktop",
+                    "clients": ["herdr", "foot"],
+                    "url": [],
+                }
+            ],
+        }
+        route = choosium.choose_browser(config, "https://unmatched.test", client)
+        self.assertEqual(route["browser"], "google-chrome.desktop")
+        self.assertEqual(route["reason"], "client")
+
+    def test_gio_metadata_and_process_ancestry_are_both_preserved(self):
+        ancestry = iter([(80, "python3"), (70, "herdr"), (1, "systemd"), None])
+        with (
+            mock.patch.object(choosium.os, "getpid", return_value=100),
+            mock.patch.object(choosium, "_parent_process", side_effect=lambda _pid: next(ancestry)),
+            mock.patch.object(choosium, "active_hypr_class", return_value="Chromium"),
+            mock.patch.dict(
+                os.environ,
+                {"GIO_LAUNCHED_DESKTOP_FILE": "/usr/share/applications/slack.desktop"},
+                clear=False,
+            ),
+        ):
+            client = choosium.detect_client()
+
+        self.assertEqual(client, "slack herdr")
+
+    def test_focused_window_is_used_only_without_launch_provenance(self):
+        ancestry = iter([(80, "python3"), (70, "zsh"), (1, "systemd"), None])
+        with (
+            mock.patch.object(choosium.os, "getpid", return_value=100),
+            mock.patch.object(choosium, "_parent_process", side_effect=lambda _pid: next(ancestry)),
+            mock.patch.object(choosium, "active_hypr_class", return_value="Chromium"),
+            mock.patch.dict(os.environ, {"GIO_LAUNCHED_DESKTOP_FILE": ""}, clear=False),
+        ):
+            client = choosium.detect_client()
+
+        self.assertEqual(client, "Chromium")
+
+
 class DesktopIntegrationTests(unittest.TestCase):
     def test_generated_desktop_entry_routes_uris_through_the_helper(self):
         content = choosium.desktop_entry_content(Path("/tmp/plugin/scripts/choosium.py"))

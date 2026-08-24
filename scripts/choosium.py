@@ -53,6 +53,7 @@ SKIPPED_PARENT_PROCESSES = {
     "fish",
     "gio",
     "gio-launch-desktop",
+    "hyprland",
     "hyprchoosy",
     "python",
     "python3",
@@ -791,15 +792,20 @@ def _parent_process(pid: int) -> tuple[int, str] | None:
 
 
 def detect_client() -> str:
-    active = active_hypr_class()
-    if active:
-        return active
+    candidates: list[str] = []
+    seen: set[str] = set()
+
+    def add_candidate(candidate: str) -> None:
+        key = candidate.casefold()
+        if candidate and key not in seen:
+            candidates.append(candidate)
+            seen.add(key)
 
     launched_desktop = os.environ.get("GIO_LAUNCHED_DESKTOP_FILE", "")
     if launched_desktop:
         candidate = Path(launched_desktop).name.removesuffix(".desktop")
         if candidate and candidate not in {APP_ID, "hyprchoosy"}:
-            return candidate
+            add_candidate(candidate)
 
     pid = os.getpid()
     for _ in range(16):
@@ -809,8 +815,9 @@ def detect_client() -> str:
         pid, name = parent
         lowered = name.casefold()
         if lowered and not any(skipped in lowered for skipped in SKIPPED_PARENT_PROCESSES):
-            return name
-    return ""
+            add_candidate(name)
+
+    return " ".join(candidates) or active_hypr_class()
 
 
 def parse_url_host(url: str) -> str:
