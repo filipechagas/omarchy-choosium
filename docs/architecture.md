@@ -70,8 +70,13 @@ detached argument array.
 
 ## XDG Integration
 
-Choosium writes only a user desktop entry under `XDG_DATA_HOME`. It sets the
-HTTP, HTTPS, and HTML defaults with `xdg-settings` and `xdg-mime`, then checks
+Choosium writes a user desktop entry under `XDG_DATA_HOME`. It updates existing
+HTTP, HTTPS, and HTML overrides in the active desktops' user-specific
+`XDG_CONFIG_HOME/<desktop>-mimeapps.list` files before calling `xdg-settings`:
+these overrides take precedence over the general defaults and otherwise cause
+`xdg-settings` to fail its read-back check. Comments, unrelated associations,
+and file permissions are preserved; system files are never modified.
+It sets the general defaults with `xdg-settings` and `xdg-mime`, then checks
 the browser setting and queries all three handlers independently. The panel
 offers repair instead of claiming success if any handler differs or the
 generated desktop entry is stale. The panel presents the same default-browser

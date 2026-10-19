@@ -450,6 +450,102 @@ class ClientDetectionTests(unittest.TestCase):
 
 
 class DesktopIntegrationTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("xdg-settings") and shutil.which("xdg-mime"), "XDG tools are required")
+    def test_set_default_repairs_desktop_specific_web_overrides(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            config_home = root / "config"
+            applications = root / "data" / "applications"
+            config_home.mkdir()
+            applications.mkdir(parents=True)
+            override = config_home / "hyprland-mimeapps.list"
+            override.write_text(
+                "# Keep desktop-specific defaults.\n"
+                "[Default Applications]\n"
+                "x-scheme-handler/http=omarchy-browser.desktop\n"
+                "x-scheme-handler/https=omarchy-browser.desktop\n"
+                "text/plain=editor.desktop\n"
+                "\n[Added Associations]\n"
+                "x-scheme-handler/http=omarchy-browser.desktop;\n",
+                encoding="utf-8",
+            )
+            override.chmod(0o640)
+            browser_entry = (
+                "[Desktop Entry]\nType=Application\nName=Browser\n"
+                "Exec=python3 %u\nCategories=Network;WebBrowser;\n"
+                "MimeType=x-scheme-handler/http;x-scheme-handler/https;text/html;\n"
+            )
+            for desktop_id in ("chromium.desktop", "omarchy-browser.desktop"):
+                (applications / desktop_id).write_text(browser_entry, encoding="utf-8")
+            config = config_home / "choosium" / "config.toml"
+            config.parent.mkdir()
+            config.write_text(choosium.serialize_config(choosium.default_config()), encoding="utf-8")
+            environment = {
+                "CHOOSIUM_CONFIG": str(config),
+                "XDG_CONFIG_HOME": str(config_home),
+                "XDG_CONFIG_DIRS": str(root / "system-config"),
+                "XDG_DATA_HOME": str(root / "data"),
+                "XDG_DATA_DIRS": str(root / "system-data"),
+                "XDG_CURRENT_DESKTOP": "Hyprland",
+            }
+
+            with mock.patch.dict(os.environ, environment):
+                choosium.ensure_desktop_entry()
+                self.assertFalse(choosium.build_status()["isDefault"])
+                result = choosium.handle_operation("set-default", {})
+
+                self.assertTrue(result["isDefault"])
+                self.assertFalse(result["handlerNeedsRepair"])
+                self.assertTrue(all(value == choosium.DESKTOP_ID for value in result["webHandlers"].values()))
+
+                direct = choosium.handle_operation("set-direct-default", {"browser": "chromium.desktop"})
+                self.assertTrue(all(value == "chromium.desktop" for value in direct["webHandlers"].values()))
+
+            content = override.read_text(encoding="utf-8")
+            self.assertIn("# Keep desktop-specific defaults.\n", content)
+            self.assertIn("text/plain=editor.desktop\n", content)
+            self.assertIn("[Added Associations]\nx-scheme-handler/http=omarchy-browser.desktop;\n", content)
+            self.assertEqual(override.stat().st_mode & 0o777, 0o640)
+
+    def test_desktop_overrides_only_update_active_user_web_defaults(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            original = (
+                "# Preserve comments.\n[Default Applications]\n"
+                "x-scheme-handler/http=other.desktop\n"
+                "text/html=other.desktop\n"
+                "x-scheme-handler/mailto=mail.desktop\n"
+                "[Removed Associations]\ntext/html=removed.desktop;\n"
+            )
+            for desktop in ("hyprland", "custom", "inactive"):
+                (root / f"{desktop}-mimeapps.list").write_text(original, encoding="utf-8")
+            with mock.patch.dict(os.environ, {
+                "XDG_CONFIG_HOME": directory,
+                "XDG_CURRENT_DESKTOP": "Hyprland:Custom:Missing:../../outside",
+            }):
+                choosium._set_desktop_web_overrides(choosium.DESKTOP_ID)
+
+            expected = original.replace("other.desktop", choosium.DESKTOP_ID)
+            for desktop in ("hyprland", "custom"):
+                self.assertEqual((root / f"{desktop}-mimeapps.list").read_text(encoding="utf-8"), expected)
+            self.assertEqual((root / "inactive-mimeapps.list").read_text(encoding="utf-8"), original)
+            self.assertFalse((root / "missing-mimeapps.list").exists())
+
+    def test_desktop_override_repair_refuses_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / "target.list"
+            original = "[Default Applications]\nx-scheme-handler/http=other.desktop\n"
+            target.write_text(original, encoding="utf-8")
+            (root / "hyprland-mimeapps.list").symlink_to(target)
+            with mock.patch.dict(os.environ, {
+                "XDG_CONFIG_HOME": directory,
+                "XDG_CURRENT_DESKTOP": "Hyprland",
+            }):
+                with self.assertRaisesRegex(choosium.ChoosiumError, "symlink"):
+                    choosium._set_desktop_web_overrides(choosium.DESKTOP_ID)
+            self.assertEqual(target.read_text(encoding="utf-8"), original)
+
     def test_generated_desktop_entry_routes_uris_through_the_helper(self):
         content = choosium.desktop_entry_content(Path("/tmp/plugin/scripts/choosium.py"))
 
@@ -514,7 +610,10 @@ class DesktopIntegrationTests(unittest.TestCase):
                 return mock.Mock(returncode=0, stdout=choosium.DESKTOP_ID + "\n", stderr="")
             return mock.Mock(returncode=0, stdout="", stderr="")
 
-        with mock.patch.object(choosium, "_run", side_effect=run_result) as run:
+        with (
+            mock.patch.object(choosium, "_run", side_effect=run_result) as run,
+            mock.patch.object(choosium, "_set_desktop_web_overrides"),
+        ):
             choosium.set_default_desktop(choosium.DESKTOP_ID)
 
         commands = [call.args[0] for call in run.call_args_list]

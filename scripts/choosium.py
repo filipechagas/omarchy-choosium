@@ -614,9 +614,41 @@ def ensure_desktop_entry() -> None:
         _run([updater, str(desktop_entry_path().parent)])
 
 
+def _set_desktop_web_overrides(desktop_id: str) -> None:
+    # xdg-mime writes mimeapps.list, but desktop-specific lists take priority.
+    # Update existing user overrides before xdg-settings, which otherwise fails
+    # its own read-back check and restores the old association.
+    config_home = _xdg_home("XDG_CONFIG_HOME", ".config")
+    for desktop in dict.fromkeys(os.environ.get("XDG_CURRENT_DESKTOP", "").lower().split(":")):
+        if not re.fullmatch(r"[a-z0-9][a-z0-9._-]*", desktop):
+            continue
+        path = config_home / f"{desktop}-mimeapps.list"
+        try:
+            content = path.read_text(encoding="utf-8")
+            mode = path.stat().st_mode & 0o777
+        except FileNotFoundError:
+            continue
+        except (OSError, UnicodeError) as error:
+            raise ChoosiumError("default-failed", f"Could not read {path}: {error}") from error
+        lines = []
+        in_defaults = False
+        for line in content.splitlines(keepends=True):
+            stripped = line.strip()
+            if stripped.startswith("["):
+                in_defaults = stripped == "[Default Applications]"
+            key, separator, _value = stripped.partition("=")
+            if in_defaults and separator and key.strip() in WEB_MIME_TYPES:
+                line = f"{key.strip()}={desktop_id}\n"
+            lines.append(line)
+        updated = "".join(lines)
+        if updated != content:
+            atomic_write(path, updated, mode)
+
+
 def set_default_desktop(desktop_id: str) -> None:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*\.desktop", desktop_id):
         raise ChoosiumError("browser-invalid", "Invalid desktop application ID")
+    _set_desktop_web_overrides(desktop_id)
     result = _run(["xdg-settings", "set", "default-web-browser", desktop_id])
     if result.returncode != 0:
         detail = result.stderr.strip() or "xdg-settings rejected the change"
