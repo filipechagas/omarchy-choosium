@@ -44,6 +44,7 @@ export CHOOSIUM_CONFIG="$(mktemp -d)/config.toml"
 - [ ] A link opened from a configured app reaches that app's browser.
 - [ ] A link opened from a background Herdr pane follows its `herdr` or terminal route while another app is focused.
 - [ ] A link opened by an agent inside a configured terminal follows the terminal route even when the agent process is the nearest ancestor.
+- [ ] A link opened by a `#!/usr/bin/env bash` script started from the Omarchy shell follows a route whose app pattern matches the script's file name.
 - [ ] A configured exact domain reaches its browser.
 - [ ] A subdomain reaches the parent-domain route's browser.
 - [ ] An app route wins when the URL also matches a website route.

@@ -71,6 +71,9 @@ Matching is deterministic:
 3. The configured default destination is used.
 
 App matching is case-insensitive and keeps Hyprchoosy's partial-match behavior.
+A script run by an interpreter such as `bash` or `python3` also matches by its
+file name, so the app pattern `aws` matches a `#!/usr/bin/env bash` script
+named `aws-vpn-login`.
 A website route matches the exact domain and its subdomains.
 
 ## Configuration

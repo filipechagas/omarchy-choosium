@@ -383,6 +383,11 @@ class HyprlandTests(unittest.TestCase):
 
 
 class ClientDetectionTests(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(choosium, "_script_name", return_value="")
+        self.script_name = patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_process_ancestry_beats_an_unrelated_focused_window(self):
         ancestry = iter(
             [
@@ -447,6 +452,83 @@ class ClientDetectionTests(unittest.TestCase):
             client = choosium.detect_client()
 
         self.assertEqual(client, "Chromium")
+
+    def test_a_script_run_by_an_interpreter_is_matched_by_its_file_name(self):
+        ancestry = iter(
+            [
+                (90, "python3"),
+                (80, "xdg-open"),
+                (70, "bash"),
+                (60, "quickshell"),
+                (50, "omarchy-launch-"),
+                (1, "systemd"),
+                None,
+            ]
+        )
+        self.script_name.side_effect = {100: "choosium.py", 80: "aws-vpn-login"}.get
+        with (
+            mock.patch.object(choosium.os, "getpid", return_value=100),
+            mock.patch.object(choosium, "_parent_process", side_effect=lambda _pid: next(ancestry)),
+            mock.patch.object(choosium, "active_hypr_class", return_value="Chromium"),
+            mock.patch.dict(os.environ, {"GIO_LAUNCHED_DESKTOP_FILE": ""}, clear=False),
+        ):
+            client = choosium.detect_client()
+
+        self.assertEqual(client, "aws-vpn-login omarchy-launch-")
+        self.assertEqual(self.script_name.call_args_list, [mock.call(80)])
+        config = {
+            "default": {"browser": "chromium.desktop"},
+            "rules": [
+                {
+                    "name": "Work",
+                    "browser": "google-chrome.desktop",
+                    "clients": ["aws"],
+                    "url": [],
+                }
+            ],
+        }
+        route = choosium.choose_browser(config, "https://accounts.google.com/o/saml2/idp", client)
+        self.assertEqual(route["browser"], "google-chrome.desktop")
+        self.assertEqual(route["reason"], "client")
+
+    def test_skipped_process_names_are_ignored_as_script_names(self):
+        ancestry = iter([(80, "python3"), (70, "sh"), (60, "foot"), (1, "systemd"), None])
+        self.script_name.return_value = "xdg-open"
+        with (
+            mock.patch.object(choosium.os, "getpid", return_value=100),
+            mock.patch.object(choosium, "_parent_process", side_effect=lambda _pid: next(ancestry)),
+            mock.patch.object(choosium, "active_hypr_class", return_value="Chromium"),
+            mock.patch.dict(os.environ, {"GIO_LAUNCHED_DESKTOP_FILE": ""}, clear=False),
+        ):
+            client = choosium.detect_client()
+
+        self.assertEqual(client, "foot")
+
+
+class ScriptNameTests(unittest.TestCase):
+    def run_process(self, arguments, cwd):
+        process = subprocess.Popen(arguments, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+        self.addCleanup(process.wait)
+        self.addCleanup(process.kill)
+        return process.pid
+
+    def test_names_the_script_file_an_interpreter_runs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / "aws-vpn-login"
+            script.write_text("sleep 10\nexit 0\n", encoding="utf-8")
+            absolute = self.run_process(["bash", "-e", "--", str(script)], directory)
+            relative = self.run_process(["bash", "aws-vpn-login"], directory)
+
+            self.assertEqual(choosium._script_name(absolute), "aws-vpn-login")
+            self.assertEqual(choosium._script_name(relative), "aws-vpn-login")
+
+    def test_ignores_command_strings_that_are_not_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            command = self.run_process(["bash", "-c", "sleep 10; exit 0", "slack"], directory)
+            module = self.run_process(["python3", "-m", "slack"], directory)
+
+            self.assertEqual(choosium._script_name(command), "")
+            self.assertEqual(choosium._script_name(module), "")
 
 
 class DesktopIntegrationTests(unittest.TestCase):

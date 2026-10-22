@@ -67,6 +67,22 @@ SKIPPED_PARENT_PROCESSES = {
     "zsh",
 }
 
+# A script started through `#!/usr/bin/env <interpreter>` runs under the
+# interpreter's process name, so its own file name identifies the source app.
+SCRIPT_INTERPRETERS = {
+    "bash",
+    "dash",
+    "fish",
+    "ksh",
+    "node",
+    "perl",
+    "python",
+    "python3",
+    "ruby",
+    "sh",
+    "zsh",
+}
+
 
 class ChoosiumError(Exception):
     def __init__(self, code: str, message: str):
@@ -823,6 +839,21 @@ def _parent_process(pid: int) -> tuple[int, str] | None:
     return (parent, name) if parent > 0 else None
 
 
+def _script_name(pid: int) -> str:
+    # The first non-option argument names a script only when it is an existing
+    # file, which leaves out `-c` command strings, modules, and bare shells.
+    process = Path("/proc") / str(pid)
+    try:
+        arguments = (process / "cmdline").read_bytes().split(b"\0")[1:]
+    except OSError:
+        return ""
+    script = next((os.fsdecode(value) for value in arguments if value and not value.startswith(b"-")), "")
+    try:
+        return Path(script).name if script and (process / "cwd" / script).is_file() else ""
+    except (OSError, ValueError):
+        return ""
+
+
 def detect_client() -> str:
     candidates: list[str] = []
     seen: set[str] = set()
@@ -839,15 +870,22 @@ def detect_client() -> str:
         if candidate and candidate not in {APP_ID, "hyprchoosy"}:
             add_candidate(candidate)
 
-    pid = os.getpid()
+    own_pid = os.getpid()
+    pid = own_pid
     for _ in range(16):
         parent = _parent_process(pid)
         if parent is None:
             break
+        process = pid
         pid, name = parent
         lowered = name.casefold()
         if lowered and not any(skipped in lowered for skipped in SKIPPED_PARENT_PROCESSES):
             add_candidate(name)
+        # The helper itself runs as `python3 choosium.py`; that script is not a source app.
+        if lowered in SCRIPT_INTERPRETERS and process != own_pid:
+            script = _script_name(process)
+            if script.casefold() not in SKIPPED_PARENT_PROCESSES:
+                add_candidate(script)
 
     return " ".join(candidates) or active_hypr_class()
 

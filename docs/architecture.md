@@ -59,8 +59,12 @@ directory and leaves the source file unchanged.
 The URL handler loads config for every invocation, so direct edits apply to the
 next link without a daemon or reload signal. It combines GIO launch metadata
 with meaningful process ancestors, preserving both an initiating agent and its
-containing terminal applications. The active Hyprland window is used only when
-that launch provenance is unavailable, because focus may change before a
+containing terminal applications. When an ancestor is a script interpreter
+such as `bash` or `python3`, the script's file name from its command line is a
+candidate too, because the process name is only the interpreter's. The
+argument counts only if it is an existing file, so command strings and link
+arguments cannot become source apps. The active Hyprland window is used only
+when that launch provenance is unavailable, because focus may change before a
 background process opens its link.
 
 Routing performs two ordered passes: all app patterns first, then all website
