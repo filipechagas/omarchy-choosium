@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.filipechagas.choosium",
   "name": "Choosium",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "author": "Filipe Chagas",
   "license": "MIT",
   "description": "Route links to different browsers by source app or website.",
