@@ -128,6 +128,17 @@ config parsing, validation, browser discovery, XDG integration, and routing.
 The generated desktop entry invokes that helper directly, so link routing does
 not depend on the Omarchy shell panel being open.
 
+The entry's launch command starts with the helper itself. Omarchy's
+`omarchy-launch-browser` runs that first word with its own arguments, and the
+helper accepts them like a browser: a link, no link at all (which opens the
+default destination), and a private-window flag such as `--incognito`. A
+private request still follows your routes, and the chosen browser is started
+with its own flag: `--private-window` for Firefox-family browsers,
+`--inprivate` for Edge, and `--incognito` for the rest. This is how the Omarchy
+agents panel opens its private sign-in window. When the plugin path contains
+spaces, the entry has to quote it and `omarchy-launch-browser` cannot use it.
+Updates rewrite an existing generated entry the next time the service starts.
+
 Choosium makes no network requests and has no telemetry. It reads local desktop
 entries, its TOML config, `/proc` as a fallback for source-app detection, and
 Hyprland state through `hyprctl`. See

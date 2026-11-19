@@ -84,6 +84,27 @@ SCRIPT_INTERPRETERS = {
 }
 
 
+# Launchers that treat Choosium as a browser, such as omarchy-launch-browser,
+# pass whichever private-window flag they guessed for it. Each routed browser
+# gets its own family's flag instead.
+PRIVATE_FLAGS = {"--incognito", "--inprivate", "--private", "--private-window"}
+FIREFOX_FAMILY_COMMANDS = {
+    "firefox",
+    "firefox-developer-edition",
+    "firefox-esr",
+    "firefox-nightly",
+    "floorp",
+    "librewolf",
+    "mullvad-browser",
+    "tor-browser",
+    "waterfox",
+    "zen",
+    "zen-browser",
+}
+OPERATIONS = {"open", "status", "save", "clients", "client-options", "set-default", "set-direct-default", "preview"}
+USAGE = "Usage: choosium.py [--incognito] [url] | choosium.py <" + "|".join(sorted(OPERATIONS)) + ">"
+
+
 class ChoosiumError(Exception):
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -600,6 +621,26 @@ def desktop_is_default(desktop_id: str, handlers: dict[str, str] | None = None) 
     return setting_matches and all(values.get(mime_type) == desktop_id for mime_type in WEB_MIME_TYPES)
 
 
+def _desktop_exec_argument(value: str) -> str:
+    # Desktop Entry Specification quoting, applied only when a path needs it so
+    # simple launchers that split Exec on spaces still find the helper.
+    reserved = set(" \t\n\"'\\><~|&;$*?#()`=%")
+    if not reserved.intersection(value):
+        return value
+    # Inside quotes, `"`, `` ` ``, `$` and `\` take a backslash; the value is
+    # then a desktop-file string, where every backslash is doubled again.
+    quoted = "".join("\\" + char if char in '"`$\\' else char for char in value)
+    return '"' + quoted.replace("\\", "\\\\") + '"'
+
+
+def desktop_exec_line(helper_path: Path) -> str:
+    # omarchy-launch-browser runs the first word of Exec with its own arguments,
+    # so that word has to be the helper rather than `env` or `python3`.
+    if os.access(helper_path, os.X_OK):
+        return f"{_desktop_exec_argument(str(helper_path))} open %u"
+    return f"/usr/bin/env python3 {_desktop_exec_argument(str(helper_path))} open %u"
+
+
 def desktop_entry_content(helper_path: Path) -> str:
     return "\n".join(
         [
@@ -609,7 +650,7 @@ def desktop_entry_content(helper_path: Path) -> str:
             "Name=Choosium",
             "GenericName=Browser Router",
             "Comment=Route links by source app or website",
-            f"Exec=/usr/bin/env python3 {helper_path} open %u",
+            f"Exec={desktop_exec_line(helper_path)}",
             "TryExec=python3",
             "Icon=web-browser",
             "Terminal=false",
@@ -628,6 +669,21 @@ def ensure_desktop_entry() -> None:
     updater = shutil.which("update-desktop-database")
     if updater:
         _run([updater, str(desktop_entry_path().parent)])
+
+
+def refresh_desktop_entry() -> None:
+    # Updates rewrite an entry that an earlier version generated, so a changed
+    # launch line takes effect without setting Choosium as the default again.
+    path = desktop_entry_path()
+    helper_path = Path(__file__).resolve()
+    try:
+        if path.is_symlink() or not path.is_file():
+            return
+        if path.read_text(encoding="utf-8", errors="replace") == desktop_entry_content(helper_path):
+            return
+        ensure_desktop_entry()
+    except (OSError, ChoosiumError):
+        pass
 
 
 def _set_desktop_web_overrides(desktop_id: str) -> None:
@@ -693,6 +749,7 @@ def _display_name(desktop_id: str, browsers: list[dict[str, Any]]) -> str:
 
 
 def build_status() -> dict[str, Any]:
+    refresh_desktop_entry()
     config, source, legacy, revision = load_effective_config()
     browsers = discover_browsers()
     all_browsers = discover_browsers(include_hidden=True)
@@ -904,7 +961,7 @@ def parse_url_host(url: str) -> str:
 def choose_browser(config: dict[str, Any], url: str, client: str) -> dict[str, str]:
     normalized = normalize_config(config, strict=False)
     client_key = str(client or "").casefold()
-    host = parse_url_host(url)
+    host = parse_url_host(url) if url else ""
     for rule in normalized["rules"]:
         for pattern in rule["clients"]:
             if pattern.casefold() in client_key:
@@ -952,17 +1009,54 @@ def command_routes_to_choosium(identifier: str, command: list[str]) -> bool:
     return False
 
 
-def launch_browser(identifier: str, url: str) -> None:
+def private_flag(command: str) -> str:
+    name = Path(command).name.casefold()
+    if name in FIREFOX_FAMILY_COMMANDS:
+        return "--private-window"
+    if "edge" in name:
+        return "--inprivate"
+    return "--incognito"
+
+
+def _private_desktop_command(browser: dict[str, Any], url: str) -> list[str]:
+    # gtk-launch cannot add arguments, so a private launch runs the entry's
+    # Exec line directly with the browser's flag in front of the link.
+    try:
+        tokens = shlex.split(browser["exec"])
+    except ValueError as error:
+        raise ChoosiumError("browser-invalid", "The browser's launch command is not valid") from error
+    flag = private_flag(browser["command"])
+    links = [flag, url] if url else [flag]
+    command: list[str] = []
+    placed = False
+    for token in tokens:
+        if token in {"%u", "%U", "%f", "%F"}:
+            if not placed:
+                command.extend(links)
+                placed = True
+        elif re.fullmatch(r"%[a-zA-Z]", token):
+            continue
+        else:
+            command.append(token.replace("%%", "%"))
+    if not placed:
+        command.extend(links)
+    return command
+
+
+def launch_browser(identifier: str, url: str, *, private: bool = False) -> None:
     browsers = discover_browsers(include_hidden=True)
     resolved = resolve_browser(identifier, browsers)
     if resolved:
         desktop_id = resolved["desktopId"]
         if desktop_id in LEGACY_DESKTOP_IDS:
             raise ChoosiumError("browser-loop", "The fallback browser points back to Choosium")
-        gtk_launch = shutil.which("gtk-launch")
-        if not gtk_launch:
-            raise ChoosiumError("browser-unavailable", "gtk-launch is not installed")
-        command = [gtk_launch, desktop_id, url]
+        if private:
+            command = _private_desktop_command(resolved, url)
+        else:
+            gtk_launch = shutil.which("gtk-launch")
+            if not gtk_launch:
+                raise ChoosiumError("browser-unavailable", "gtk-launch is not installed")
+            command = [gtk_launch, desktop_id] + ([url] if url else [])
     else:
         try:
             command = shlex.split(identifier)
@@ -974,7 +1068,10 @@ def launch_browser(identifier: str, url: str) -> None:
             raise ChoosiumError("browser-loop", "The fallback browser points back to Choosium")
         if not (os.path.isabs(command[0]) and os.access(command[0], os.X_OK)) and shutil.which(command[0]) is None:
             raise ChoosiumError("browser-unavailable", f"Browser command not found: {command[0]}")
-        command.append(url)
+        if private and not PRIVATE_FLAGS.intersection(command):
+            command.append(private_flag(command[0]))
+        if url:
+            command.append(url)
 
     try:
         subprocess.Popen(
@@ -1083,25 +1180,51 @@ def _emit(value: dict[str, Any]) -> None:
     sys.stdout.flush()
 
 
+def parse_browser_arguments(arguments: list[str]) -> tuple[str, bool]:
+    """Read a browser-style command line: an optional private flag and a link."""
+    url = ""
+    private = False
+    for argument in arguments:
+        if argument in PRIVATE_FLAGS:
+            private = True
+        elif argument.startswith("-"):
+            continue
+        elif not url:
+            url = argument
+    return url, private
+
+
+def _is_browser_invocation(arguments: list[str]) -> bool:
+    # Called as a browser (`choosium.py`, `choosium.py --incognito <url>`,
+    # `choosium.py <url>`) rather than with one of the panel's operations.
+    if not arguments:
+        return True
+    first = arguments[0]
+    return first not in OPERATIONS and (first.startswith("-") or ":" in first)
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
-    if not arguments:
-        print("Usage: choosium.py <open|status|save|clients|client-options|set-default|set-direct-default|preview>", file=sys.stderr)
-        return 2
+    # omarchy-launch-browser probes `<browser> --help` before a private launch;
+    # answer at once instead of waiting for a panel request on stdin.
+    if arguments and arguments[0] in {"--help", "-h"}:
+        print(USAGE)
+        return 0
 
-    operation = arguments[0]
-    if operation == "open":
-        url = arguments[1] if len(arguments) > 1 else ""
+    if arguments and arguments[0] == "open" or _is_browser_invocation(arguments):
+        browser_arguments = arguments[1:] if arguments and arguments[0] == "open" else arguments
+        url, private = parse_browser_arguments(browser_arguments)
         try:
             config, _, _, _ = load_effective_config()
             route = choose_browser(config, url, detect_client())
-            launch_browser(route["browser"], url)
+            launch_browser(route["browser"], url, private=private)
             return 0
         except ChoosiumError as error:
             print(f"choosium: {error}", file=sys.stderr)
             _notify_error(str(error))
             return 1
 
+    operation = arguments[0]
     if operation == "client-options":
         try:
             _emit(hypr_client_options())  # type: ignore[arg-type]

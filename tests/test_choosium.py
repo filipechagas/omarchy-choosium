@@ -224,6 +224,84 @@ class RoutingTests(unittest.TestCase):
             ["firefox", "--private-window", "https://example.com"],
         )
 
+    def test_private_launch_runs_the_entry_with_the_browsers_own_flag(self):
+        cases = [
+            ("chromium.desktop", "/usr/bin/chromium", "/usr/bin/chromium %U", "--incognito"),
+            ("firefox.desktop", "/usr/lib/firefox/firefox", "/usr/lib/firefox/firefox %u", "--private-window"),
+            ("microsoft-edge.desktop", "/usr/bin/microsoft-edge-stable", "/usr/bin/microsoft-edge-stable %U", "--inprivate"),
+        ]
+        for desktop_id, command, exec_line, flag in cases:
+            browser = {
+                "desktopId": desktop_id,
+                "value": desktop_id,
+                "label": desktop_id,
+                "command": command,
+                "exec": exec_line,
+            }
+            with (
+                self.subTest(desktop_id),
+                mock.patch.object(choosium, "discover_browsers", return_value=[browser]),
+                mock.patch.object(choosium.subprocess, "Popen") as popen,
+            ):
+                choosium.launch_browser(desktop_id, "https://claude.ai/oauth", private=True)
+
+                self.assertEqual(popen.call_args.args[0], [command, flag, "https://claude.ai/oauth"])
+
+    def test_private_launch_keeps_exec_prefixes_and_drops_other_field_codes(self):
+        browser = {
+            "desktopId": "vivaldi-stable.desktop",
+            "value": "vivaldi-stable.desktop",
+            "label": "Vivaldi",
+            "command": "/usr/bin/vivaldi-stable",
+            "exec": "env GDK_SCALE=1 /usr/bin/vivaldi-stable --profile-directory=Work %U %i",
+        }
+        with (
+            mock.patch.object(choosium, "discover_browsers", return_value=[browser]),
+            mock.patch.object(choosium.subprocess, "Popen") as popen,
+        ):
+            choosium.launch_browser("vivaldi-stable.desktop", "https://example.com", private=True)
+
+        self.assertEqual(
+            popen.call_args.args[0],
+            ["env", "GDK_SCALE=1", "/usr/bin/vivaldi-stable", "--profile-directory=Work", "--incognito", "https://example.com"],
+        )
+
+    def test_private_custom_command_gets_one_private_flag(self):
+        with (
+            mock.patch.object(choosium, "discover_browsers", return_value=[]),
+            mock.patch.object(choosium.shutil, "which", return_value="/usr/bin/browser"),
+            mock.patch.object(choosium.subprocess, "Popen") as popen,
+        ):
+            choosium.launch_browser("firefox --private-window", "https://example.com", private=True)
+            first = popen.call_args.args[0]
+            choosium.launch_browser("chromium --new-window", "https://example.com", private=True)
+            second = popen.call_args.args[0]
+
+        self.assertEqual(first, ["firefox", "--private-window", "https://example.com"])
+        self.assertEqual(second, ["chromium", "--new-window", "--incognito", "https://example.com"])
+
+    def test_launch_without_a_link_opens_the_browser(self):
+        browser = {
+            "desktopId": "chromium.desktop",
+            "value": "chromium.desktop",
+            "label": "Chromium",
+            "command": "/usr/bin/chromium",
+            "exec": "/usr/bin/chromium %U",
+        }
+        with (
+            mock.patch.object(choosium, "discover_browsers", return_value=[browser]),
+            mock.patch.object(choosium.shutil, "which", return_value="/usr/bin/gtk-launch"),
+            mock.patch.object(choosium.subprocess, "Popen") as popen,
+        ):
+            choosium.launch_browser("chromium.desktop", "")
+
+        self.assertEqual(popen.call_args.args[0], ["/usr/bin/gtk-launch", "chromium.desktop"])
+
+    def test_client_routes_apply_without_a_link(self):
+        route = choosium.choose_browser(self.config, "", "Slack")
+        self.assertEqual(route["browser"], "google-chrome.desktop")
+        self.assertEqual(choosium.choose_browser(self.config, "", "")["reason"], "default")
+
     def test_interpreter_based_self_route_is_rejected(self):
         identifier = f"{os.path.basename(os.sys.executable)} {SCRIPT} open"
         with (
@@ -629,11 +707,55 @@ class DesktopIntegrationTests(unittest.TestCase):
             self.assertEqual(target.read_text(encoding="utf-8"), original)
 
     def test_generated_desktop_entry_routes_uris_through_the_helper(self):
-        content = choosium.desktop_entry_content(Path("/tmp/plugin/scripts/choosium.py"))
+        with mock.patch.object(choosium.os, "access", return_value=True):
+            content = choosium.desktop_entry_content(Path("/tmp/plugin/scripts/choosium.py"))
 
-        self.assertIn("Exec=/usr/bin/env python3 /tmp/plugin/scripts/choosium.py open %u", content)
+        self.assertIn("Exec=/tmp/plugin/scripts/choosium.py open %u", content)
         self.assertIn("x-scheme-handler/http", content)
         self.assertIn("NoDisplay=true", content)
+
+    def test_exec_starts_with_the_helper_for_launchers_that_run_its_first_word(self):
+        # omarchy-launch-browser runs `sed 's/^Exec=\([^ ]*\).*/\1/'` with its own arguments.
+        with mock.patch.object(choosium.os, "access", return_value=True):
+            content = choosium.desktop_entry_content(Path("/opt/choosium/scripts/choosium.py"))
+
+        exec_line = next(line for line in content.splitlines() if line.startswith("Exec="))
+        self.assertEqual(exec_line.removeprefix("Exec=").split(" ")[0], "/opt/choosium/scripts/choosium.py")
+
+    def test_non_executable_helper_falls_back_to_the_interpreter(self):
+        with mock.patch.object(choosium.os, "access", return_value=False):
+            line = choosium.desktop_exec_line(Path("/tmp/plugin/scripts/choosium.py"))
+
+        self.assertEqual(line, "/usr/bin/env python3 /tmp/plugin/scripts/choosium.py open %u")
+
+    def test_helper_paths_with_reserved_characters_are_quoted(self):
+        with mock.patch.object(choosium.os, "access", return_value=True):
+            line = choosium.desktop_exec_line(Path('/home/me/My Plugins/$x/choosium.py'))
+
+        self.assertEqual(line, '"/home/me/My Plugins/\\\\$x/choosium.py" open %u')
+
+    def test_status_rewrites_an_outdated_generated_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            entry = Path(directory) / choosium.DESKTOP_ID
+            entry.write_text("[Desktop Entry]\nExec=/usr/bin/env python3 old open %u\n", encoding="utf-8")
+            with (
+                mock.patch.object(choosium, "desktop_entry_path", return_value=entry),
+                mock.patch.object(choosium.shutil, "which", return_value=None),
+            ):
+                choosium.refresh_desktop_entry()
+
+            self.assertEqual(
+                entry.read_text(encoding="utf-8"),
+                choosium.desktop_entry_content(Path(choosium.__file__).resolve()),
+            )
+
+    def test_status_does_not_create_a_missing_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            entry = Path(directory) / choosium.DESKTOP_ID
+            with mock.patch.object(choosium, "desktop_entry_path", return_value=entry):
+                choosium.refresh_desktop_entry()
+
+            self.assertFalse(entry.exists())
 
     @unittest.skipUnless(shutil.which("xdg-open"), "xdg-open is required")
     def test_generated_desktop_entry_works_with_generic_xdg_open(self):
@@ -647,9 +769,10 @@ class DesktopIntegrationTests(unittest.TestCase):
 
             helper = root / "probe.py"
             helper.write_text(
-                "import json\nimport sys\nprint(json.dumps(sys.argv[1:]))\n",
+                "#!/usr/bin/env python3\nimport json\nimport sys\nprint(json.dumps(sys.argv[1:]))\n",
                 encoding="utf-8",
             )
+            helper.chmod(0o755)
             (applications / choosium.DESKTOP_ID).write_text(
                 choosium.desktop_entry_content(helper),
                 encoding="utf-8",
@@ -743,3 +866,60 @@ class QmlContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BrowserInvocationTests(unittest.TestCase):
+    def run_main(self, arguments):
+        with (
+            mock.patch.object(choosium, "load_effective_config", return_value=({"default": {"browser": "chromium.desktop"}, "rules": []}, None, False, "")),
+            mock.patch.object(choosium, "detect_client", return_value=""),
+            mock.patch.object(choosium, "launch_browser") as launch,
+            mock.patch.object(choosium, "_read_request", side_effect=AssertionError("read a panel request")),
+        ):
+            status = choosium.main(arguments)
+        return status, launch
+
+    def test_omarchy_private_launch_is_routed_privately(self):
+        # omarchy-launch-browser --private <url> runs `<Exec first word> --incognito <url>`.
+        status, launch = self.run_main(["--incognito", "https://claude.ai/oauth/authorize"])
+
+        self.assertEqual(status, 0)
+        launch.assert_called_once_with("chromium.desktop", "https://claude.ai/oauth/authorize", private=True)
+
+    def test_bare_link_and_open_operation_are_routed_normally(self):
+        for arguments in (["https://example.com"], ["open", "https://example.com"]):
+            with self.subTest(arguments):
+                status, launch = self.run_main(arguments)
+
+                self.assertEqual(status, 0)
+                launch.assert_called_once_with("chromium.desktop", "https://example.com", private=False)
+
+    def test_no_arguments_opens_the_default_browser(self):
+        status, launch = self.run_main([])
+
+        self.assertEqual(status, 0)
+        launch.assert_called_once_with("chromium.desktop", "", private=False)
+
+    def test_help_answers_without_reading_stdin(self):
+        result = subprocess.run(
+            [os.sys.executable, str(SCRIPT), "--help"],
+            check=False,
+            capture_output=True,
+            stdin=subprocess.PIPE,
+            text=True,
+            timeout=5,
+        )
+
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("Usage:", result.stdout)
+        self.assertNotIn("MOZ_LOG", result.stdout)
+
+    def test_panel_operations_still_read_requests(self):
+        with (
+            mock.patch.object(choosium, "_read_request", return_value={}),
+            mock.patch.object(choosium, "handle_operation", return_value={"ok": True}) as handle,
+            mock.patch.object(choosium, "_emit"),
+        ):
+            choosium.main(["status"])
+
+        handle.assert_called_once_with("status", {})

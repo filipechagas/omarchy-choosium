@@ -51,6 +51,9 @@ export CHOOSIUM_CONFIG="$(mktemp -d)/config.toml"
 - [ ] Earlier rules win when partial app patterns overlap.
 - [ ] An unmatched link reaches the configured default destination.
 - [ ] A browser already running receives the link without a duplicate profile.
+- [ ] `omarchy-launch-browser https://example.com` opens the link in the routed browser.
+- [ ] `omarchy-launch-browser --private https://example.com` opens a private window in the routed browser.
+- [ ] **Open the sign-in page again** in the Omarchy agents panel's **Add Claude Code account** opens a private window.
 - [ ] A malformed config reports an error rather than silently replacing it.
 
 ## Migration And Direct Editing
